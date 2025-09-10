@@ -5,6 +5,7 @@ local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
 local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PathfindingService = game:GetService("PathfindingService")
 
 local player = Players.LocalPlayer
 
@@ -28,7 +29,7 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 
 local SAVE_KEY = "LostHub_SavedKey_99Nights_" .. player.UserId
 local SAVE_TIMER_KEY = "LostHub_KeyTimer_99Nights_" .. player.UserId
-local REQUIRED_KEYS = {"Revborn", "Makizen"}
+local REQUIRED_KEYS = {"Revborn", "Makizen", "Update2", "JJS"}
 
 local function isKeySaved()
     if not (isfile and readfile and writefile) then return false end
@@ -163,7 +164,7 @@ local function createUnsupportedGameScreen()
     blurFrame.Parent = screenGui
     
     local mainFrame = Instance.new("Frame")
-    mainFrame.Size = isMobile and UDim2.new(0, 400, 0, 280) or UDim2.new(0, 450, 0, 300)
+    mainFrame.Size = isMobile and UDim2.new(0, 400, 0, 300) or UDim2.new(0, 450, 0, 320)
     mainFrame.Position = UDim2.new(0.5, -mainFrame.Size.X.Offset/2, 0.5, -mainFrame.Size.Y.Offset/2)
     mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
     mainFrame.BorderSizePixel = 0
@@ -213,10 +214,28 @@ local function createUnsupportedGameScreen()
     discordCorner.CornerRadius = UDim.new(0, 12)
     discordCorner.Parent = discordBtn
     
+    local nightsBtn = Instance.new("TextButton")
+    nightsBtn.Size = UDim2.new(0, 180, 0, 50)
+    nightsBtn.Position = UDim2.new(0.5, -90, 0, 240)
+    nightsBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+    nightsBtn.Text = "Join 99 Nights"
+    nightsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nightsBtn.TextSize = isMobile and 16 or 18
+    nightsBtn.Font = Enum.Font.GothamBold
+    nightsBtn.Parent = mainFrame
+    
+    local nightsCorner = Instance.new("UICorner")
+    nightsCorner.CornerRadius = UDim.new(0, 12)
+    nightsCorner.Parent = nightsBtn
+    
     discordBtn.MouseButton1Click:Connect(function()
         if setclipboard then
             setclipboard("https://discord.gg/BvYXdXFwjV")
         end
+    end)
+    
+    nightsBtn.MouseButton1Click:Connect(function()
+        TeleportService:Teleport(NIGHTS_99_LOBBY_ID, player)
     end)
     
     return screenGui, blurEffect
@@ -303,7 +322,12 @@ local Window = nil
 local hubLoaded = false
 
 local selectedCreature = "Bear"
-local selectedItem = ""
+local selectedFood = "Apple"
+local selectedMelee = "Katana"
+local selectedRanged = "Rifle"
+local selectedArmor = "Iron Body"
+local selectedFuel = "Log"
+local selectedScrap = "Metal Chair"
 local selectedESPCreature = ""
 local selectedPlayerForTP = ""
 local espEnabled = false
@@ -311,30 +335,35 @@ local allESPEnabled = false
 local playerESPEnabled = false
 local infiniteJumpEnabled = false
 local infiniteJumpConnection = nil
-local killAuraEnabled = false
-local killAuraConnection = nil
-local killAuraRange = 50
+local autoChopEnabled = false
+local autoChopConnection = nil
 local playerSpeed = 16
 local playerJumpPower = 50
 local noclipEnabled = false
 local noclipConnection = nil
 local mapHighlightEnabled = false
 local mapHighlight = nil
-local autoCuttingTrees = false
-local currentTweenToTree = nil
 local hitboxSize = 70
-local modifiedCreatures = {}
 local originalHitboxSizes = {}
+local modifiedCreatures = {}
 
 local espData = {}
 local playerESPData = {}
 local espRefreshConnection = nil
+local espUpdateTimer = 0
 
 local creatureNames = {
     "Arctic Fox", "Mammoth", "The Owl", "Polar Bear", "The Deer",
     "Alien", "Alien Elite", "Cultist", "Crossbow Cultist", 
     "Juggernaut Cultist", "Wolf", "Alpha Wolf", "Bear", "Bunny"
 }
+
+local foodItems = {"Stew", "BBQ Ribs", "Steak", "Morsel", "Apple", "Berry", "Pumpkin", "Corn", "Carrot", "Bandage", "Medkit"}
+local meleeWeapons = {"Poison Spear", "Trident", "Ice Sword", "Laser Sword", "Katana", "Morningstar", "Spear", "Chainsaw", "Strong Axe", "Ice Axe", "Good Axe"}
+local rangedWeapons = {"Blowpipe", "Flamethrower", "Laser Cannon", "Ray Gun", "Kunai", "Frozen Shuriken", "Snowball", "Tactical Shotgun", "Rifle", "Revolver"}
+local armorItems = {"Shotgun Ammo", "Rifle Ammo", "Revolver Ammo", "Alien Armor", "Riot Shield", "Thorn Body", "Iron Body", "Poison Armor", "Leather Body"}
+local fuelItems = {"Oil Barrel", "Fuel Canister", "Coal", "Biofuel", "Chair", "Log"}
+local scrapItems = {"Old Car Engine", "Metal Chair", "Tyre", "Broken Microwave", "Old Radio", "Broken Fan", "UFO Component", "UFO Junk", "Sheet Metal", "Bolt"}
 
 local function scanWorkspaceForCreatures()
     local foundCreatures = {}
@@ -368,100 +397,6 @@ local function scanWorkspaceForCreatures()
     return result
 end
 
-local function scanWorkspaceForItems()
-    local foundItems = {}
-    local itemTypes = {
-        "wood", "log", "logs", "stone", "rock", "coin", "gem", "crystal", 
-        "berry", "fruit", "meat", "bone", "stick", "branch",
-        "mushroom", "herb", "flower", "seed", "nut", "apple", "carrot",
-        "fish", "ore", "metal", "iron", "copper", "diamond", "emerald",
-        "ruby", "sapphire", "coal", "oil", "water", "milk", "egg"
-    }
-    
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Part") or obj:IsA("Model") then
-            local objName = obj.Name:lower()
-            
-            for _, itemType in pairs(itemTypes) do
-                if objName:find(itemType) then
-                    local found = false
-                    for _, existingItem in pairs(foundItems) do
-                        if existingItem == obj.Name then
-                            found = true
-                            break
-                        end
-                    end
-                    if not found then
-                        table.insert(foundItems, obj.Name)
-                    end
-                    break
-                end
-            end
-        end
-    end
-    
-    table.sort(foundItems)
-    return foundItems
-end
-
-local function scanWorkspaceForSmallTrees()
-    local foundTrees = {}
-    
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") or obj:IsA("Part") then
-            local objName = obj.Name:lower()
-            local objSize = nil
-            
-            if obj:IsA("Part") then
-                objSize = obj.Size
-            elseif obj:IsA("Model") and obj:FindFirstChildOfClass("BasePart") then
-                objSize = obj:FindFirstChildOfClass("BasePart").Size
-            end
-            
-            if (objName:find("tree") or objName:find("trunk")) and objSize then
-                if objSize.Y < 20 and objSize.X < 15 and objSize.Z < 15 then
-                    table.insert(foundTrees, obj)
-                end
-            end
-        end
-    end
-    
-    return foundTrees
-end
-
-local function findWorkspaceItems()
-    local foundItems = {}
-    
-    local itemsFolder = workspace:FindFirstChild("Items")
-    if itemsFolder then
-        for _, obj in pairs(itemsFolder:GetChildren()) do
-            if obj:IsA("Part") then
-                local objName = obj.Name
-                if objName == "Log" or objName == "Logs" or objName == "Wood" or 
-                   objName:lower():find("log") or objName == "TreeLog" or objName == "WoodLog" then
-                    table.insert(foundItems, obj)
-                end
-            elseif obj:IsA("Model") then
-                local objName = obj.Name
-                if objName == "Log" or objName == "Logs" or objName == "Wood" or 
-                   objName:lower():find("log") or objName == "TreeLog" or objName == "WoodLog" then
-                    table.insert(foundItems, obj)
-                end
-            end
-        end
-    end
-    
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Part") and (obj.Name == "Log" or obj.Name == "Logs" or obj.Name == "Wood" or obj.Name:lower():find("log")) then
-            table.insert(foundItems, obj)
-        elseif obj:IsA("Model") and (obj.Name == "Log" or obj.Name == "Logs" or obj.Name == "Wood" or obj.Name:lower():find("log")) then
-            table.insert(foundItems, obj)
-        end
-    end
-    
-    return foundItems
-end
-
 local function findCreaturesInWorkspace(creatureName)
     local foundCreatures = {}
     local searchPatterns = {
@@ -484,6 +419,207 @@ local function findCreaturesInWorkspace(creatureName)
     end
     
     return foundCreatures
+end
+
+local function findTreesInWorkspace()
+    local trees = {}
+    
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and (obj.Name:lower():find("tree") or obj.Name:lower():find("log")) then
+            if obj:FindFirstChildOfClass("BasePart") then
+                table.insert(trees, obj)
+            end
+        elseif obj:IsA("Part") and (obj.Name:lower():find("tree") or obj.Name:lower():find("log")) then
+            table.insert(trees, obj)
+        end
+    end
+    
+    return trees
+end
+
+local function findItemInWorkspace(itemName)
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj.Name == itemName and (obj:IsA("Part") or obj:IsA("Model")) then
+            return obj
+        end
+    end
+    return nil
+end
+
+local function spawnItem(itemName, category)
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    local referenceItem = findItemInWorkspace(itemName)
+    if not referenceItem then
+        return
+    end
+    
+    local playerPos = player.Character.HumanoidRootPart.Position
+    local spawnCount = math.random(8, 15)
+    
+    for i = 1, spawnCount do
+        local angle = (i / spawnCount) * math.pi * 2
+        local distance = math.random(10, 30)
+        local spawnPos = playerPos + Vector3.new(
+            math.cos(angle) * distance,
+            math.random(2, 8),
+            math.sin(angle) * distance
+        )
+        
+        local newItem
+        if referenceItem:IsA("Part") then
+            newItem = referenceItem:Clone()
+            newItem.Position = spawnPos
+            newItem.Anchored = false
+            newItem.CanCollide = true
+            newItem.Parent = workspace
+        elseif referenceItem:IsA("Model") then
+            newItem = referenceItem:Clone()
+            if newItem:FindFirstChild("HumanoidRootPart") then
+                newItem.HumanoidRootPart.Position = spawnPos
+                newItem.HumanoidRootPart.Anchored = false
+            elseif newItem:FindFirstChildOfClass("BasePart") then
+                local mainPart = newItem:FindFirstChildOfClass("BasePart")
+                mainPart.Position = spawnPos
+                mainPart.Anchored = false
+            end
+            newItem.Parent = workspace
+        end
+        
+        task.wait(0.1)
+    end
+end
+
+local function bringAllItems()
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    local playerPos = player.Character.HumanoidRootPart.Position
+    local collected = 0
+    
+    local allItemLists = {foodItems, meleeWeapons, rangedWeapons, armorItems, fuelItems, scrapItems}
+    
+    for _, itemList in pairs(allItemLists) do
+        for _, itemName in pairs(itemList) do
+            if collected >= 100 then break end
+            
+            local item = findItemInWorkspace(itemName)
+            if item then
+                local newPos = playerPos + Vector3.new(math.random(-5, 5), collected * 0.3, math.random(-5, 5))
+                
+                if item:IsA("Part") then
+                    item.CFrame = CFrame.new(newPos)
+                elseif item:IsA("Model") and item:FindFirstChildOfClass("BasePart") then
+                    local mainPart = item:FindFirstChildOfClass("BasePart")
+                    item:SetPrimaryPartCFrame(CFrame.new(newPos))
+                end
+                
+                collected = collected + 1
+                task.wait(0.05)
+            end
+        end
+    end
+end
+
+local function startAutoChop()
+    if autoChopConnection then return end
+    
+    autoChopConnection = RunService.Heartbeat:Connect(function()
+        if not autoChopEnabled or not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        
+        local trees = findTreesInWorkspace()
+        if #trees == 0 then return end
+        
+        local closestTree = nil
+        local closestDistance = math.huge
+        local playerPos = player.Character.HumanoidRootPart.Position
+        
+        for _, tree in pairs(trees) do
+            if tree and tree.Parent then
+                local treePos = nil
+                if tree:IsA("Model") and tree:FindFirstChildOfClass("BasePart") then
+                    treePos = tree:FindFirstChildOfClass("BasePart").Position
+                elseif tree:IsA("Part") then
+                    treePos = tree.Position
+                end
+                
+                if treePos then
+                    local distance = (playerPos - treePos).Magnitude
+                    if distance < closestDistance then
+                        closestDistance = distance
+                        closestTree = tree
+                    end
+                end
+            end
+        end
+        
+        if closestTree then
+            local targetPos = nil
+            if closestTree:IsA("Model") and closestTree:FindFirstChildOfClass("BasePart") then
+                targetPos = closestTree:FindFirstChildOfClass("BasePart").Position
+            elseif closestTree:IsA("Part") then
+                targetPos = closestTree.Position
+            end
+            
+            if targetPos then
+                local path = PathfindingService:CreatePath({
+                    AgentRadius = 2,
+                    AgentHeight = 5,
+                    AgentCanJump = true,
+                    AgentMaxSlope = 45,
+                    WaypointSpacing = 4
+                })
+                
+                local success, errorMessage = pcall(function()
+                    path:ComputeAsync(playerPos, targetPos - Vector3.new(0, 0, 3))
+                end)
+                
+                if success then
+                    local waypoints = path:GetWaypoints()
+                    if #waypoints > 1 then
+                        local targetWaypoint = waypoints[2].Position
+                        
+                        local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Linear)
+                        local tween = TweenService:Create(
+                            player.Character.HumanoidRootPart,
+                            tweenInfo,
+                            {CFrame = CFrame.new(targetWaypoint)}
+                        )
+                        tween:Play()
+                        
+                        local tool = player.Character:FindFirstChildOfClass("Tool")
+                        if not tool then
+                            for _, t in pairs(player.Backpack:GetChildren()) do
+                                if t:IsA("Tool") and (t.Name:lower():find("axe") or t.Name:lower():find("chainsaw")) then
+                                    player.Character.Humanoid:EquipTool(t)
+                                    tool = t
+                                    break
+                                end
+                            end
+                        end
+                        
+                        if tool and closestDistance < 10 then
+                            tool:Activate()
+                        end
+                    end
+                end
+            end
+        end
+        
+        task.wait(1)
+    end)
+end
+
+local function stopAutoChop()
+    if autoChopConnection then
+        autoChopConnection:Disconnect()
+        autoChopConnection = nil
+    end
 end
 
 local function modifyCreatureHitbox(creatureName, newSize)
@@ -532,169 +668,23 @@ local function modifyCreatureHitbox(creatureName, newSize)
     return modifiedCount > 0
 end
 
-local function startKillAura()
-    if killAuraConnection then return end
-    
-    killAuraConnection = RunService.Heartbeat:Connect(function()
-        if not killAuraEnabled or not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
-            return
-        end
-        
-        local playerPos = player.Character.HumanoidRootPart.Position
-        local tool = player.Character:FindFirstChildOfClass("Tool")
-        
-        if not tool then
-            for _, t in pairs(player.Backpack:GetChildren()) do
-                if t:IsA("Tool") then
-                    player.Character.Humanoid:EquipTool(t)
-                    tool = t
-                    break
+local function resetAllHitboxes()
+    for creature, parts in pairs(originalHitboxSizes) do
+        if creature and creature.Parent then
+            for _, part in pairs(creature:GetChildren()) do
+                if part.Name == "CustomHitbox" then
+                    part:Destroy()
                 end
             end
         end
-        
-        if tool and tool:FindFirstChild("Handle") then
-            for _, creature in pairs(workspace:GetDescendants()) do
-                if creature:IsA("Model") and creature:FindFirstChildOfClass("Humanoid") and creature ~= player.Character then
-                    local humanoid = creature:FindFirstChildOfClass("Humanoid")
-                    if humanoid and humanoid.Health > 0 then
-                        local creatureRoot = creature:FindFirstChild("HumanoidRootPart") or creature:FindFirstChildOfClass("BasePart")
-                        local hitboxPart = creature:FindFirstChild("CustomHitbox")
-                        
-                        if hitboxPart then
-                            local distance = (playerPos - hitboxPart.Position).Magnitude
-                            if distance <= killAuraRange then
-                                tool:Activate()
-                                task.wait(0.1)
-                                break
-                            end
-                        elseif creatureRoot then
-                            local distance = (playerPos - creatureRoot.Position).Magnitude
-                            if distance <= killAuraRange then
-                                tool:Activate()
-                                task.wait(0.1)
-                                break
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end
-
-local function stopKillAura()
-    if killAuraConnection then
-        killAuraConnection:Disconnect()
-        killAuraConnection = nil
     end
-end
-
-local function startAutoCutTrees()
-    if autoCuttingTrees then return end
     
-    autoCuttingTrees = true
-    
-    task.spawn(function()
-        while autoCuttingTrees do
-            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                local tempNoclipConnection = RunService.Stepped:Connect(function()
-                    if player.Character and autoCuttingTrees then
-                        for _, part in pairs(player.Character:GetDescendants()) do
-                            if part:IsA("BasePart") and part.CanCollide then
-                                part.CanCollide = false
-                            end
-                        end
-                    end
-                end)
-                
-                local trees = scanWorkspaceForSmallTrees()
-                
-                for _, tree in pairs(trees) do
-                    if not autoCuttingTrees then break end
-                    if not tree or not tree.Parent then continue end
-                    
-                    local treePos = nil
-                    local treePart = nil
-                    
-                    if tree:IsA("Part") then
-                        treePos = tree.Position
-                        treePart = tree
-                    elseif tree:IsA("Model") and tree:FindFirstChildOfClass("BasePart") then
-                        treePart = tree:FindFirstChildOfClass("BasePart")
-                        treePos = treePart.Position
-                    end
-                    
-                    if treePos and treePart then
-                        local frontPos = treePos + Vector3.new(0, 0, 1)
-                        local lookDirection = (treePos - frontPos).Unit
-                        local targetCFrame = CFrame.lookAt(frontPos, treePos)
-                        
-                        if currentTweenToTree then
-                            currentTweenToTree:Cancel()
-                        end
-                        
-                        currentTweenToTree = TweenService:Create(
-                            player.Character.HumanoidRootPart,
-                            TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-                            {CFrame = targetCFrame}
-                        )
-                        
-                        currentTweenToTree:Play()
-                        currentTweenToTree.Completed:Wait()
-                        
-                        if tree and tree.Parent and autoCuttingTrees then
-                            if tree:IsA("Model") then
-                                for _, part in pairs(tree:GetDescendants()) do
-                                    if part:IsA("ClickDetector") then
-                                        fireclickdetector(part)
-                                        break
-                                    end
-                                end
-                            elseif tree:IsA("Part") and tree:FindFirstChildOfClass("ClickDetector") then
-                                fireclickdetector(tree:FindFirstChildOfClass("ClickDetector"))
-                            end
-                            
-                            local startTime = tick()
-                            while tree and tree.Parent and (tick() - startTime) < 10 and autoCuttingTrees do
-                                task.wait(0.3)
-                            end
-                            
-                            if not tree or not tree.Parent then
-                                task.wait(0.2)
-                            end
-                        end
-                    end
-                end
-                
-                if tempNoclipConnection then
-                    tempNoclipConnection:Disconnect()
-                end
-                
-                if player.Character then
-                    for _, part in pairs(player.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = true
-                        end
-                    end
-                end
-            end
-            
-            task.wait(5)
-        end
-    end)
-end
-
-local function stopAutoCutTrees()
-    autoCuttingTrees = false
-    if currentTweenToTree then
-        currentTweenToTree:Cancel()
-        currentTweenToTree = nil
-    end
+    originalHitboxSizes = {}
+    modifiedCreatures = {}
 end
 
 local function createESPForCreature(creature)
-    if not creature or not creature.Parent then return end
+    if not creature or not creature.Parent or espData[creature] then return end
     
     local rootPart = creature:FindFirstChild("HumanoidRootPart") or 
                     creature:FindFirstChild("Torso") or
@@ -765,22 +755,17 @@ local function createESPForCreature(creature)
     distanceLabel.TextSize = 12
     distanceLabel.TextScaled = true
     
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if creature and creature.Parent and rootPart and rootPart.Parent and 
-           player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local distance = (player.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude
-            distanceLabel.Text = math.floor(distance) .. " studs"
-        else
-            connection:Disconnect()
-        end
-    end)
-    
-    espData[creature] = {box = espBox, billboard = billboard, connection = connection}
+    espData[creature] = {
+        box = espBox, 
+        billboard = billboard, 
+        nameLabel = nameLabel,
+        distanceLabel = distanceLabel,
+        rootPart = rootPart
+    }
 end
 
 local function createESPForPlayer(targetPlayer)
-    if not targetPlayer or targetPlayer == player or not targetPlayer.Character then return end
+    if not targetPlayer or targetPlayer == player or not targetPlayer.Character or playerESPData[targetPlayer] then return end
     
     local rootPart = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
@@ -848,51 +833,74 @@ local function createESPForPlayer(targetPlayer)
     distanceLabel.TextSize = 12
     distanceLabel.TextScaled = true
     
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if targetPlayer and targetPlayer.Character and rootPart and rootPart.Parent and 
-           player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local distance = (player.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude
-            distanceLabel.Text = math.floor(distance) .. " studs"
-        else
-            connection:Disconnect()
-        end
-    end)
+    playerESPData[targetPlayer] = {
+        box = espBox, 
+        billboard = billboard, 
+        nameLabel = nameLabel,
+        distanceLabel = distanceLabel,
+        rootPart = rootPart
+    }
+end
+
+local function updateESPDistances()
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
     
-    playerESPData[targetPlayer] = {box = espBox, billboard = billboard, connection = connection}
+    local playerPos = player.Character.HumanoidRootPart.Position
+    
+    for creature, espInfo in pairs(espData) do
+        if creature and creature.Parent and espInfo.rootPart and espInfo.rootPart.Parent then
+            local distance = (playerPos - espInfo.rootPart.Position).Magnitude
+            espInfo.distanceLabel.Text = math.floor(distance) .. " studs"
+        end
+    end
+    
+    for targetPlayer, espInfo in pairs(playerESPData) do
+        if targetPlayer and targetPlayer.Character and espInfo.rootPart and espInfo.rootPart.Parent then
+            local distance = (playerPos - espInfo.rootPart.Position).Magnitude
+            espInfo.distanceLabel.Text = math.floor(distance) .. " studs"
+        end
+    end
 end
 
 local function startESPAutoRefresh()
     if espRefreshConnection then return end
     
     espRefreshConnection = RunService.Heartbeat:Connect(function()
-        task.wait(5)
+        espUpdateTimer = espUpdateTimer + 1
         
-        if allESPEnabled then
-            local allCreatures = scanWorkspaceForCreatures()
-            for _, creatureName in pairs(allCreatures) do
-                local creatures = findCreaturesInWorkspace(creatureName)
+        if espUpdateTimer >= 300 then
+            espUpdateTimer = 0
+            
+            if allESPEnabled then
+                local allCreatures = scanWorkspaceForCreatures()
+                for _, creatureName in pairs(allCreatures) do
+                    local creatures = findCreaturesInWorkspace(creatureName)
+                    for _, creature in pairs(creatures) do
+                        if not espData[creature] then
+                            createESPForCreature(creature)
+                        end
+                    end
+                end
+            elseif espEnabled and selectedESPCreature ~= "" then
+                local creatures = findCreaturesInWorkspace(selectedESPCreature)
                 for _, creature in pairs(creatures) do
                     if not espData[creature] then
                         createESPForCreature(creature)
                     end
                 end
             end
-        elseif espEnabled and selectedESPCreature ~= "" then
-            local creatures = findCreaturesInWorkspace(selectedESPCreature)
-            for _, creature in pairs(creatures) do
-                if not espData[creature] then
-                    createESPForCreature(creature)
+            
+            if playerESPEnabled then
+                for _, targetPlayer in pairs(Players:GetPlayers()) do
+                    if targetPlayer ~= player and targetPlayer.Character and not playerESPData[targetPlayer] then
+                        createESPForPlayer(targetPlayer)
+                    end
                 end
             end
         end
         
-        if playerESPEnabled then
-            for _, targetPlayer in pairs(Players:GetPlayers()) do
-                if targetPlayer ~= player and targetPlayer.Character and not playerESPData[targetPlayer] then
-                    createESPForPlayer(targetPlayer)
-                end
-            end
+        if espUpdateTimer % 30 == 0 then
+            updateESPDistances()
         end
     end)
 end
@@ -906,9 +914,6 @@ end
 
 local function removeESPFromCreature(creature)
     if espData[creature] then
-        if espData[creature].connection then
-            espData[creature].connection:Disconnect()
-        end
         espData[creature] = nil
     end
     
@@ -929,9 +934,6 @@ end
 
 local function removeESPFromPlayer(targetPlayer)
     if playerESPData[targetPlayer] then
-        if playerESPData[targetPlayer].connection then
-            playerESPData[targetPlayer].connection:Disconnect()
-        end
         playerESPData[targetPlayer] = nil
     end
     
@@ -1021,123 +1023,6 @@ local function toggleMapHighlight()
         mapHighlight.Saturation = 0.2
         mapHighlight.Parent = Lighting
         mapHighlightEnabled = true
-    end
-end
-
-local function spawnSelectedItem(itemName)
-    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
-        return
-    end
-    
-    local referenceItem = nil
-    
-    if itemName:lower():find("log") then
-        local searchNames = {"Log", "Logs", "log", "logs", "Wood", "TreeLog", "WoodLog"}
-        
-        for _, searchName in pairs(searchNames) do
-            for _, obj in pairs(workspace:GetDescendants()) do
-                if obj.Name == searchName and (obj:IsA("Part") or obj:IsA("Model")) then
-                    referenceItem = obj
-                    break
-                end
-            end
-            if referenceItem then break end
-        end
-    else
-        for _, obj in pairs(workspace:GetDescendants()) do
-            if obj.Name == itemName and (obj:IsA("Part") or obj:IsA("Model")) then
-                referenceItem = obj
-                break
-            end
-        end
-    end
-    
-    if not referenceItem then
-        return
-    end
-    
-    local playerPos = player.Character.HumanoidRootPart.Position
-    local spawnCount = math.random(8, 15)
-    
-    for i = 1, spawnCount do
-        local angle = (i / spawnCount) * math.pi * 2
-        local distance = math.random(10, 30)
-        local spawnPos = playerPos + Vector3.new(
-            math.cos(angle) * distance,
-            math.random(2, 8),
-            math.sin(angle) * distance
-        )
-        
-        local newItem
-        if referenceItem:IsA("Part") then
-            newItem = referenceItem:Clone()
-            newItem.Position = spawnPos
-            newItem.Anchored = false
-            newItem.CanCollide = true
-            local itemsFolder = workspace:FindFirstChild("Items")
-            if itemsFolder then
-                newItem.Parent = itemsFolder
-            else
-                newItem.Parent = workspace
-            end
-        elseif referenceItem:IsA("Model") then
-            newItem = referenceItem:Clone()
-            if newItem:FindFirstChild("HumanoidRootPart") then
-                newItem.HumanoidRootPart.Position = spawnPos
-                newItem.HumanoidRootPart.Anchored = false
-            elseif newItem:FindFirstChildOfClass("BasePart") then
-                local mainPart = newItem:FindFirstChildOfClass("BasePart")
-                mainPart.Position = spawnPos
-                mainPart.Anchored = false
-            end
-            local itemsFolder = workspace:FindFirstChild("Items")
-            if itemsFolder then
-                newItem.Parent = itemsFolder
-            else
-                newItem.Parent = workspace
-            end
-        end
-        
-        task.wait(0.1)
-    end
-end
-
-local function teleportAllItemsToPlayer()
-    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
-        return
-    end
-    
-    local playerPos = player.Character.HumanoidRootPart.Position
-    local collected = 0
-    
-    local items = findWorkspaceItems()
-    for _, item in pairs(items) do
-        if collected >= 50 then break end
-        
-        if item:IsA("Part") then
-            item.CFrame = CFrame.new(playerPos + Vector3.new(math.random(-3, 3), collected * 0.5, math.random(-3, 3)))
-            collected = collected + 1
-        elseif item:IsA("Model") and item:FindFirstChildOfClass("BasePart") then
-            local mainPart = item:FindFirstChildOfClass("BasePart")
-            mainPart.CFrame = CFrame.new(playerPos + Vector3.new(math.random(-3, 3), collected * 0.5, math.random(-3, 3)))
-            collected = collected + 1
-        end
-        
-        task.wait(0.05)
-    end
-    
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if collected >= 100 then break end
-        
-        if obj:IsA("Part") then
-            local name = obj.Name:lower()
-            if name:find("wood") or name:find("coin") or name:find("gem") or name:find("crystal") or
-               name:find("berry") or name:find("meat") or name:find("bone") then
-                obj.CFrame = CFrame.new(playerPos + Vector3.new(math.random(-3, 3), collected * 0.3, math.random(-3, 3)))
-                collected = collected + 1
-                task.wait(0.05)
-            end
-        end
     end
 end
 
@@ -1293,6 +1178,19 @@ local function createHub()
     tabs.WorldTab = Window:Tab({Title = "World Features", Icon = "globe"})
     
     tabs.CreditsTab:Section({Title = "Team Credits"})
+    
+    tabs.CreditsTab:Paragraph({
+        Title = "Picture of the Owner",
+        Desc = "生まれ変わった - Creator and Main Developer",
+        Color = "Red",
+        Image = "rbxassetid://79386418213324",
+        ImageSize = 100,
+        Thumbnail = "",
+        ThumbnailSize = 80,
+        Locked = false,
+        Buttons = {}
+    })
+    
     tabs.CreditsTab:Paragraph({
         Title = "Script Developers",
         Desc = "• 生まれ変わった"
@@ -1511,7 +1409,7 @@ local function createHub()
         end
     })
     
-    tabs.CreaturesTab:Section({Title = "Hitbox System"})
+    tabs.CreaturesTab:Section({Title = "Dynamic Creature System"})
     
     local creatureDropdown = tabs.CreaturesTab:Dropdown({
         Title = "Select Creature",
@@ -1537,7 +1435,7 @@ local function createHub()
         Step = 1,
         Value = {
             Min = 1,
-            Max = 200,
+            Max = 10000,
             Default = 70,
         },
         Callback = function(value)
@@ -1553,31 +1451,42 @@ local function createHub()
         end
     })
     
-    tabs.CreaturesTab:Section({Title = "Kill Aura System"})
-    
-    tabs.CreaturesTab:Slider({
-        Title = "Kill Aura Range",
-        Step = 1,
-        Value = {
-            Min = 10,
-            Max = 200,
-            Default = 50,
-        },
-        Callback = function(value)
-            killAuraRange = value
+    tabs.CreaturesTab:Button({
+        Title = "Modify ALL Creatures",
+        Desc = "Apply hitbox to all creatures (1 of each type)",
+        Callback = function()
+            local allCreatures = scanWorkspaceForCreatures()
+            local totalModified = 0
+            
+            for _, creatureName in pairs(allCreatures) do
+                if modifyCreatureHitbox(creatureName, hitboxSize) then
+                    totalModified = totalModified + 1
+                end
+                task.wait(0.2)
+            end
         end
     })
     
-    tabs.CreaturesTab:Toggle({
-        Title = "Kill Aura",
-        Desc = "Automatically attack creatures when they get close",
+    tabs.CreaturesTab:Button({
+        Title = "Reset All Hitboxes",
+        Desc = "Restore all creatures to original sizes",
+        Callback = function()
+            resetAllHitboxes()
+        end
+    })
+    
+    tabs.WorldTab:Section({Title = "Auto Features"})
+    
+    tabs.WorldTab:Toggle({
+        Title = "Auto Chop Trees",
+        Desc = "Automatically pathfind and chop trees",
         Default = false,
         Callback = function(state)
-            killAuraEnabled = state
+            autoChopEnabled = state
             if state then
-                startKillAura()
+                startAutoChop()
             else
-                stopKillAura()
+                stopAutoChop()
             end
         end
     })
@@ -1595,85 +1504,133 @@ local function createHub()
         end
     })
     
-    tabs.WorldTab:Section({Title = "Item Spawning & Collection"})
+    tabs.WorldTab:Section({Title = "Food Items"})
     
-    local itemDropdown = tabs.WorldTab:Dropdown({
-        Title = "Select Item to Spawn",
-        Values = scanWorkspaceForItems(),
+    local foodDropdown = tabs.WorldTab:Dropdown({
+        Title = "Food",
+        Values = foodItems,
         Multi = false,
         Default = 1,
         Callback = function(value)
-            selectedItem = value or ""
-        end
-    })
-    
-    task.spawn(function()
-        while task.wait(5) do
-            if itemDropdown then
-                local newItems = scanWorkspaceForItems()
-                itemDropdown:SetValues(newItems)
-            end
-        end
-    end)
-    
-    tabs.WorldTab:Button({
-        Title = "Spawn Selected Item",
-        Desc = "Spawns the selected item with proper log support",
-        Callback = function()
-            if selectedItem ~= "" then
-                spawnSelectedItem(selectedItem)
-            end
-        end
-    })
-
-tabs.WorldTab:Button({
-        Title = "Teleport All Items to You",
-        Desc = "Reset physics and teleport all logs and collectibles to your position",
-        Callback = function()
-            teleportAllItemsToPlayer()
+            selectedFood = value or "Apple"
         end
     })
     
     tabs.WorldTab:Button({
-        Title = "Clear All Spawned Items",
-        Desc = "Remove all spawned items from workspace",
+        Title = "Spawn Food",
+        Desc = "Spawn selected food item",
         Callback = function()
-            if selectedItem ~= "" then
-                local removed = 0
-                local itemsFolder = workspace:FindFirstChild("Items")
-                if itemsFolder then
-                    for _, obj in pairs(itemsFolder:GetChildren()) do
-                        if obj.Name == selectedItem or obj.Name == "Log" or obj.Name == "Logs" or 
-                           obj.Name == "Wood" or obj.Name == "TreeLog" or obj.Name == "WoodLog" then
-                            obj:Destroy()
-                            removed = removed + 1
-                        end
-                    end
-                end
-            end
+            spawnItem(selectedFood, "food")
         end
     })
     
-    tabs.WorldTab:Section({Title = "Automated Systems"})
+    tabs.WorldTab:Section({Title = "Melee Weapons"})
     
-    tabs.WorldTab:Toggle({
-        Title = "Auto Cut Small Trees",
-        Desc = "Auto cut trees - player floats in front of tree and waits for completion",
-        Default = false,
-        Callback = function(state)
-            if state then
-                startAutoCutTrees()
-            else
-                stopAutoCutTrees()
-            end
+    local meleeDropdown = tabs.WorldTab:Dropdown({
+        Title = "Melee Types",
+        Values = meleeWeapons,
+        Multi = false,
+        Default = 1,
+        Callback = function(value)
+            selectedMelee = value or "Katana"
         end
     })
     
     tabs.WorldTab:Button({
-        Title = "Scan for Small Trees",
-        Desc = "List all small trees found in workspace",
+        Title = "Spawn Melee",
+        Desc = "Spawn selected melee weapon",
         Callback = function()
-            local trees = scanWorkspaceForSmallTrees()
+            spawnItem(selectedMelee, "melee")
+        end
+    })
+    
+    tabs.WorldTab:Section({Title = "Ranged Weapons"})
+    
+    local rangedDropdown = tabs.WorldTab:Dropdown({
+        Title = "Ranged Types",
+        Values = rangedWeapons,
+        Multi = false,
+        Default = 1,
+        Callback = function(value)
+            selectedRanged = value or "Rifle"
+        end
+    })
+    
+    tabs.WorldTab:Button({
+        Title = "Spawn Ranged",
+        Desc = "Spawn selected ranged weapon",
+        Callback = function()
+            spawnItem(selectedRanged, "ranged")
+        end
+    })
+    
+    tabs.WorldTab:Section({Title = "Armor & Support"})
+    
+    local armorDropdown = tabs.WorldTab:Dropdown({
+        Title = "Armor & Support",
+        Values = armorItems,
+        Multi = false,
+        Default = 1,
+        Callback = function(value)
+            selectedArmor = value or "Iron Body"
+        end
+    })
+    
+    tabs.WorldTab:Button({
+        Title = "Spawn Armor",
+        Desc = "Spawn selected armor/support item",
+        Callback = function()
+            spawnItem(selectedArmor, "armor")
+        end
+    })
+    
+    tabs.WorldTab:Section({Title = "Fuel Items"})
+    
+    local fuelDropdown = tabs.WorldTab:Dropdown({
+        Title = "Fuel",
+        Values = fuelItems,
+        Multi = false,
+        Default = 1,
+        Callback = function(value)
+            selectedFuel = value or "Log"
+        end
+    })
+    
+    tabs.WorldTab:Button({
+        Title = "Spawn Fuel",
+        Desc = "Spawn selected fuel item",
+        Callback = function()
+            spawnItem(selectedFuel, "fuel")
+        end
+    })
+    
+    tabs.WorldTab:Section({Title = "Scrap Items"})
+    
+    local scrapDropdown = tabs.WorldTab:Dropdown({
+        Title = "Scrap",
+        Values = scrapItems,
+        Multi = false,
+        Default = 1,
+        Callback = function(value)
+            selectedScrap = value or "Metal Chair"
+        end
+    })
+    
+    tabs.WorldTab:Button({
+        Title = "Spawn Scrap",
+        Desc = "Spawn selected scrap item",
+        Callback = function()
+            spawnItem(selectedScrap, "scrap")
+        end
+    })
+    
+    tabs.WorldTab:Section({Title = "Universal Actions"})
+    
+    tabs.WorldTab:Button({
+        Title = "Bring All",
+        Desc = "Teleport all spawnable items to your position",
+        Callback = function()
+            bringAllItems()
         end
     })
 end
@@ -1763,7 +1720,7 @@ else
         keyGui.Parent = player.PlayerGui
         keyGui.ResetOnSpawn = false
         
-        local frameSize = isMobile and UDim2.new(0, 400, 0, 200) or UDim2.new(0, 450, 0, 220)
+        local frameSize = isMobile and UDim2.new(0, 420, 0, 220) or UDim2.new(0, 500, 0, 250)
         
         local frame = Instance.new("Frame")
         frame.Size = frameSize
@@ -1813,29 +1770,18 @@ else
         subtitle.Size = UDim2.new(0, 200, 0, 20)
         subtitle.Position = UDim2.new(0, 100, 0, 50)
         subtitle.BackgroundTransparency = 1
-        subtitle.Text = "99 Nights Edition"
+        subtitle.Text = "By 生まれ変わった"
         subtitle.TextColor3 = Color3.fromRGB(150, 150, 150)
         subtitle.TextSize = isMobile and 12 or 14
         subtitle.Font = Enum.Font.Gotham
         subtitle.TextXAlignment = Enum.TextXAlignment.Left
         subtitle.Parent = frame
         
-        local premiumLabel = Instance.new("TextLabel")
-        premiumLabel.Size = UDim2.new(0, 200, 0, 20)
-        premiumLabel.Position = UDim2.new(0, 100, 0, 70)
-        premiumLabel.BackgroundTransparency = 1
-        premiumLabel.Text = "Buy premium key by Lost"
-        premiumLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-        premiumLabel.TextSize = isMobile and 10 or 12
-        premiumLabel.Font = Enum.Font.Gotham
-        premiumLabel.TextXAlignment = Enum.TextXAlignment.Left
-        premiumLabel.Parent = frame
-        
         local discordIcon = Instance.new("ImageButton")
         discordIcon.Size = UDim2.new(0, 30, 0, 30)
         discordIcon.Position = UDim2.new(1, -120, 0, 25)
         discordIcon.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
-        discordIcon.Image = "rbxassetid://6031094670"
+        discordIcon.Image = "rbxassetid://10367063073"
         discordIcon.Parent = frame
         
         local discordIconCorner = Instance.new("UICorner")
@@ -1844,7 +1790,7 @@ else
         
         local keyInput = Instance.new("TextBox")
         keyInput.Size = UDim2.new(1, -80, 0, 50)
-        keyInput.Position = UDim2.new(0, 40, 0, 110)
+        keyInput.Position = UDim2.new(0, 40, 0, 100)
         keyInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
         keyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
         keyInput.PlaceholderText = "Enter Key"
@@ -1859,7 +1805,7 @@ else
         inputCorner.Parent = keyInput
         
         local checkKeyBtn = Instance.new("TextButton")
-        checkKeyBtn.Size = UDim2.new(0, 160, 0, 40)
+        checkKeyBtn.Size = UDim2.new(0, 180, 0, 40)
         checkKeyBtn.Position = UDim2.new(0, 40, 0, 170)
         checkKeyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
         checkKeyBtn.Text = "Check Key"
@@ -1873,8 +1819,8 @@ else
         checkKeyCorner.Parent = checkKeyBtn
         
         local copyKeyLinkBtn = Instance.new("TextButton")
-        copyKeyLinkBtn.Size = UDim2.new(0, 160, 0, 40)
-        copyKeyLinkBtn.Position = UDim2.new(0, 220, 0, 170)
+        copyKeyLinkBtn.Size = UDim2.new(0, 180, 0, 40)
+        copyKeyLinkBtn.Position = UDim2.new(0, 240, 0, 170)
         copyKeyLinkBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
         copyKeyLinkBtn.Text = "Copy Key Link"
         copyKeyLinkBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1975,8 +1921,8 @@ player.CharacterAdded:Connect(function()
     if infiniteJumpEnabled then
         enableInfiniteJump()
     end
-    if killAuraEnabled then
-        startKillAura()
+    if autoChopEnabled then
+        startAutoChop()
     end
     
     updatePlayerSpeed(playerSpeed)
