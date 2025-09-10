@@ -1,0 +1,1212 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local TeleportService = game:GetService("TeleportService")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+
+local NIGHTS_99_GAME_ID = 126509999114328
+local NIGHTS_99_LOBBY_ID = 79546208627805
+local MM2_GAME_IDS = {142823291, 335132309}
+
+local function detectGame()
+    if game.PlaceId == NIGHTS_99_GAME_ID then
+        return "99NIGHTS"
+    elseif game.PlaceId == NIGHTS_99_LOBBY_ID then
+        return "99NIGHTS_LOBBY"
+    end
+    
+    for _, gameId in pairs(MM2_GAME_IDS) do
+        if game.PlaceId == gameId then
+            return "MM2"
+        end
+    end
+    
+    return "UNSUPPORTED"
+end
+
+local currentGame = detectGame()
+
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+local function getKeyForGame(gameType)
+    local keys = {
+        ["99NIGHTS"] = {"Revborn", "Makizen"},
+        ["99NIGHTS_LOBBY"] = {"Revborn", "Makizen"}
+    }
+    return keys[gameType] or {"INVALID"}
+end
+
+local SAVE_KEY = "LostHub_SavedKey_" .. currentGame .. "_" .. player.UserId
+local SAVE_TIMER_KEY = "LostHub_KeyTimer_" .. currentGame .. "_" .. player.UserId
+local REQUIRED_KEYS = getKeyForGame(currentGame)
+
+local function isKeySaved()
+    if not (isfile and readfile and writefile) then return false end
+    
+    local keyFile = SAVE_KEY .. ".txt"
+    local timerFile = SAVE_TIMER_KEY .. ".txt"
+    
+    if isfile(keyFile) and isfile(timerFile) then
+        local savedKey = readfile(keyFile)
+        local savedTimer = tonumber(readfile(timerFile)) or 0
+        
+        for _, validKey in pairs(REQUIRED_KEYS) do
+            if savedKey == validKey and tick() < savedTimer then
+                return true
+            end
+        end
+        
+        if isfile(keyFile) then delfile(keyFile) end
+        if isfile(timerFile) then delfile(timerFile) end
+    end
+    
+    return false
+end
+
+local function saveKey(key)
+    if not writefile then return end
+    
+    local randomTime = math.random(45 * 60, 60 * 60)
+    local expireTime = tick() + randomTime
+    
+    writefile(SAVE_KEY .. ".txt", key)
+    writefile(SAVE_TIMER_KEY .. ".txt", tostring(expireTime))
+end
+
+local function create99NightsLobbyScreen()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "NightsLobbyScreen"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+    local blurEffect = Instance.new("BlurEffect")
+    blurEffect.Size = 24
+    blurEffect.Parent = Lighting
+    
+    local blurFrame = Instance.new("Frame")
+    blurFrame.Size = UDim2.new(1, 0, 1, 0)
+    blurFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    blurFrame.BackgroundTransparency = 0.5
+    blurFrame.BorderSizePixel = 0
+    blurFrame.Parent = screenGui
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = isMobile and UDim2.new(0, 400, 0, 300) or UDim2.new(0, 450, 0, 280)
+    mainFrame.Position = UDim2.new(0.5, -mainFrame.Size.X.Offset/2, 0.5, -mainFrame.Size.Y.Offset/2)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 20)
+    corner.Parent = mainFrame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(100, 100, 100)
+    stroke.Thickness = 2
+    stroke.Parent = mainFrame
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -40, 0, 60)
+    title.Position = UDim2.new(0, 20, 0, 20)
+    title.BackgroundTransparency = 1
+    title.Text = "Join the game first"
+    title.TextColor3 = Color3.fromRGB(255, 100, 100)
+    title.TextSize = isMobile and 28 or 32
+    title.Font = Enum.Font.GothamBold
+    title.Parent = mainFrame
+    
+    local message = Instance.new("TextLabel")
+    message.Size = UDim2.new(1, -40, 0, 80)
+    message.Position = UDim2.new(0, 20, 0, 90)
+    message.BackgroundTransparency = 1
+    message.Text = "Please load into 99 nights game first. Why are you using it in the lobby?"
+    message.TextColor3 = Color3.fromRGB(255, 255, 255)
+    message.TextSize = isMobile and 16 or 18
+    message.Font = Enum.Font.Gotham
+    message.TextWrapped = true
+    message.Parent = mainFrame
+    
+    local okButton = Instance.new("TextButton")
+    okButton.Size = UDim2.new(0, 120, 0, 40)
+    okButton.Position = UDim2.new(0.5, -60, 1, -70)
+    okButton.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
+    okButton.Text = "OK"
+    okButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    okButton.TextSize = isMobile and 18 or 20
+    okButton.Font = Enum.Font.GothamBold
+    okButton.Parent = mainFrame
+    
+    local okCorner = Instance.new("UICorner")
+    okCorner.CornerRadius = UDim.new(0, 12)
+    okCorner.Parent = okButton
+    
+    okButton.MouseButton1Click:Connect(function()
+        screenGui:Destroy()
+        if blurEffect and blurEffect.Parent then
+            blurEffect:Destroy()
+        end
+    end)
+    
+    return screenGui, blurEffect
+end
+
+local function createUnsupportedGameScreen()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "UnsupportedGameScreen"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+    local blurEffect = Instance.new("BlurEffect")
+    blurEffect.Size = 24
+    blurEffect.Parent = Lighting
+    
+    local blurFrame = Instance.new("Frame")
+    blurFrame.Size = UDim2.new(1, 0, 1, 0)
+    blurFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    blurFrame.BackgroundTransparency = 0.5
+    blurFrame.BorderSizePixel = 0
+    blurFrame.Parent = screenGui
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = isMobile and UDim2.new(0, 400, 0, 350) or UDim2.new(0, 500, 0, 370)
+    mainFrame.Position = UDim2.new(0.5, -mainFrame.Size.X.Offset/2, 0.5, -mainFrame.Size.Y.Offset/2)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 20)
+    corner.Parent = mainFrame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(100, 100, 100)
+    stroke.Thickness = 2
+    stroke.Parent = mainFrame
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -40, 0, 60)
+    title.Position = UDim2.new(0, 20, 0, 20)
+    title.BackgroundTransparency = 1
+    title.Text = "Game Not Supported"
+    title.TextColor3 = Color3.fromRGB(255, 100, 100)
+    title.TextSize = isMobile and 28 or 32
+    title.Font = Enum.Font.GothamBold
+    title.Parent = mainFrame
+    
+    local message = Instance.new("TextLabel")
+    message.Size = UDim2.new(1, -40, 0, 80)
+    message.Position = UDim2.new(0, 20, 0, 90)
+    message.BackgroundTransparency = 1
+    message.Text = "This game isn't supported with Lost Hub yet. Please join 99 Nights to use the script."
+    message.TextColor3 = Color3.fromRGB(255, 255, 255)
+    message.TextSize = isMobile and 16 or 18
+    message.Font = Enum.Font.Gotham
+    message.TextWrapped = true
+    message.Parent = mainFrame
+    
+    local discordBtn = Instance.new("TextButton")
+    discordBtn.Size = UDim2.new(0, 180, 0, 50)
+    discordBtn.Position = UDim2.new(0.5, -90, 0, 180)
+    discordBtn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+    discordBtn.Text = "Discord Server"
+    discordBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    discordBtn.TextSize = isMobile and 16 or 18
+    discordBtn.Font = Enum.Font.GothamBold
+    discordBtn.Parent = mainFrame
+    
+    local discordCorner = Instance.new("UICorner")
+    discordCorner.CornerRadius = UDim.new(0, 12)
+    discordCorner.Parent = discordBtn
+    
+    local nightsBtn = Instance.new("TextButton")
+    nightsBtn.Size = UDim2.new(0, 180, 0, 50)
+    nightsBtn.Position = UDim2.new(0.5, -90, 0, 250)
+    nightsBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+    nightsBtn.Text = "Join 99 Nights"
+    nightsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nightsBtn.TextSize = isMobile and 16 or 18
+    nightsBtn.Font = Enum.Font.GothamBold
+    nightsBtn.Parent = mainFrame
+    
+    local nightsCorner = Instance.new("UICorner")
+    nightsCorner.CornerRadius = UDim.new(0, 12)
+    nightsCorner.Parent = nightsBtn
+    
+    discordBtn.MouseButton1Click:Connect(function()
+        if setclipboard then
+            setclipboard("https://discord.gg/BvYXdXFwjV")
+        end
+    end)
+    
+    nightsBtn.MouseButton1Click:Connect(function()
+        TeleportService:Teleport(NIGHTS_99_LOBBY_ID, player)
+    end)
+    
+    return screenGui, blurEffect
+end
+
+local function createIntroScreen()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "LostHubIntro"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+    local blurEffect = Instance.new("BlurEffect")
+    blurEffect.Size = 24
+    blurEffect.Parent = Lighting
+    
+    local blurFrame = Instance.new("Frame")
+    blurFrame.Size = UDim2.new(1, 0, 1, 0)
+    blurFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    blurFrame.BackgroundTransparency = 0.3
+    blurFrame.BorderSizePixel = 0
+    blurFrame.Parent = screenGui
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 400, 0, 200)
+    mainFrame.Position = UDim2.new(0.5, -200, 0.5, -100)
+    mainFrame.BackgroundTransparency = 1
+    mainFrame.Parent = screenGui
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0.5, 0)
+    title.Position = UDim2.new(0, 0, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "Lost Hub"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 48
+    title.Font = Enum.Font.GothamBold
+    title.TextTransparency = 1
+    title.Parent = mainFrame
+    
+    local subtitle = Instance.new("TextLabel")
+    subtitle.Size = UDim2.new(1, 0, 0.5, 0)
+    subtitle.Position = UDim2.new(0, 0, 0.5, 0)
+    subtitle.BackgroundTransparency = 1
+    subtitle.Text = "Made by 生まれ変わった"
+    subtitle.TextColor3 = Color3.fromRGB(150, 150, 150)
+    subtitle.TextSize = 20
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.TextTransparency = 1
+    subtitle.Parent = mainFrame
+    
+    local titleTween = TweenService:Create(title, TweenInfo.new(1, Enum.EasingStyle.Quad), {TextTransparency = 0})
+    titleTween:Play()
+    
+    task.wait(0.5)
+    local subtitleTween = TweenService:Create(subtitle, TweenInfo.new(1, Enum.EasingStyle.Quad), {TextTransparency = 0})
+    subtitleTween:Play()
+    
+    task.wait(2.5)
+    local fadeOutTitle = TweenService:Create(title, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {TextTransparency = 1})
+    local fadeOutSubtitle = TweenService:Create(subtitle, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {TextTransparency = 1})
+    fadeOutTitle:Play()
+    fadeOutSubtitle:Play()
+    
+    task.wait(0.5)
+    screenGui:Destroy()
+    if blurEffect and blurEffect.Parent then
+        blurEffect:Destroy()
+    end
+    
+    return true
+end
+
+if currentGame == "99NIGHTS_LOBBY" then
+    create99NightsLobbyScreen()
+    return
+end
+
+if currentGame ~= "99NIGHTS" then
+    createUnsupportedGameScreen()
+    return
+end
+
+local Window = nil
+local hubLoaded = false
+
+local selectedCreature = "Bear"
+local selectedItem = ""
+local selectedESPCreature = ""
+local selectedPlayerForTP = ""
+local hitboxSize = 70
+local hitboxVisualization = {}
+local originalHitboxSizes = {}
+local modifiedCreatures = {}
+local espEnabled = false
+local allESPEnabled = false
+local playerESPEnabled = false
+local infiniteJumpEnabled = false
+local infiniteJumpConnection = nil
+local killAuraEnabled = false
+local killAuraConnection = nil
+local killAuraRange = 50
+local playerSpeed = 16
+local playerJumpPower = 50
+local noclipEnabled = false
+local noclipConnection = nil
+local autoCuttingTrees = false
+local mapHighlightEnabled = false
+local mapHighlight = nil
+local currentTweenToTree = nil
+
+local espData = {}
+local playerESPData = {}
+local espRefreshConnection = nil
+
+local creatureNames = {
+    "Arctic Fox", "Mammoth", "The Owl", "Polar Bear", "The Deer",
+    "Alien", "Alien Elite", "Cultist", "Crossbow Cultist", 
+    "Juggernaut Cultist", "Wolf", "Alpha Wolf", "Bear", "Bunny"
+}
+
+local function scanWorkspaceForCreatures()
+    local foundCreatures = {}
+    
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+            local objName = obj.Name
+            local found = false
+            
+            for _, knownCreature in pairs(creatureNames) do
+                if objName:lower():find(knownCreature:lower()) or 
+                   objName:lower():find(knownCreature:lower():gsub("the ", "")) or
+                   objName:lower():find(knownCreature:lower():gsub(" ", "")) then
+                    found = true
+                    break
+                end
+            end
+            
+            if found and not foundCreatures[objName] then
+                foundCreatures[objName] = true
+            end
+        end
+    end
+    
+    local result = {}
+    for name, _ in pairs(foundCreatures) do
+        table.insert(result, name)
+    end
+    
+    table.sort(result)
+    return result
+end
+
+local function scanWorkspaceForPlayers()
+    local foundPlayers = {}
+    
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            table.insert(foundPlayers, plr.Name)
+        end
+    end
+    
+    return foundPlayers
+end
+
+local function scanWorkspaceForItems()
+    local foundItems = {}
+    local itemTypes = {
+        "log", "logs", "wood", "stone", "rock", "coin", "gem", "crystal", 
+        "berry", "fruit", "meat", "bone", "stick", "branch",
+        "mushroom", "herb", "flower", "seed", "nut"
+    }
+    
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Part") or obj:IsA("Model") then
+            local objName = obj.Name:lower()
+            
+            for _, itemType in pairs(itemTypes) do
+                if objName:find(itemType) then
+                    local found = false
+                    for _, existingItem in pairs(foundItems) do
+                        if existingItem == obj.Name then
+                            found = true
+                            break
+                        end
+                    end
+                    if not found then
+                        table.insert(foundItems, obj.Name)
+                    end
+                    break
+                end
+            end
+        end
+    end
+    
+    table.sort(foundItems)
+    return foundItems
+end
+
+local function scanWorkspaceForTrees()
+    local foundTrees = {}
+    
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") or obj:IsA("Part") then
+            local objName = obj.Name:lower()
+            local objSize = nil
+            
+            if obj:IsA("Part") then
+                objSize = obj.Size
+            elseif obj:IsA("Model") and obj:FindFirstChildOfClass("BasePart") then
+                objSize = obj:FindFirstChildOfClass("BasePart").Size
+            end
+            
+            if (objName:find("tree") or objName:find("trunk")) and objSize then
+                if objSize.Y < 30 and objSize.X < 20 and objSize.Z < 20 then
+                    table.insert(foundTrees, obj)
+                end
+            end
+        end
+    end
+    
+    return foundTrees
+end
+
+local function scanWorkspaceForLogs()
+    local foundLogs = {}
+    
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Part") or obj:IsA("Model") then
+            local objName = obj.Name
+            if objName == "Log" or objName == "Logs" or objName == "Wood" or 
+               objName:lower():find("log") or objName == "TreeLog" or objName == "WoodLog" then
+                table.insert(foundLogs, obj)
+            end
+        end
+    end
+    
+    return foundLogs
+end
+
+local function findCreaturesInWorkspace(creatureName)
+    local foundCreatures = {}
+    local searchPatterns = {
+        creatureName:lower(),
+        creatureName:lower():gsub("the ", ""),
+        creatureName:lower():gsub(" ", "")
+    }
+    
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+            local objName = obj.Name:lower()
+            
+            for _, pattern in pairs(searchPatterns) do
+                if objName:find(pattern) or objName == pattern then
+                    table.insert(foundCreatures, obj)
+                    break
+                end
+            end
+        end
+    end
+    
+    return foundCreatures
+end
+
+local function modifyCreatureHitbox(creatureName, newSize)
+    local creatures = findCreaturesInWorkspace(creatureName)
+    local modifiedCount = 0
+    
+    for _, creature in pairs(creatures) do
+        if creature and creature.Parent and creature ~= player.Character then
+            if not originalHitboxSizes[creature] then
+                originalHitboxSizes[creature] = {}
+            end
+            
+            local mainPart = creature:FindFirstChild("HumanoidRootPart") or 
+                            creature:FindFirstChild("Torso") or
+                            creature:FindFirstChildOfClass("BasePart")
+            
+            if mainPart then
+                for _, existingHitbox in pairs(creature:GetChildren()) do
+                    if existingHitbox.Name == "CustomHitbox" then
+                        existingHitbox:Destroy()
+                    end
+                end
+                
+                local hitboxPart = Instance.new("Part")
+                hitboxPart.Name = "CustomHitbox"
+                hitboxPart.Size = Vector3.new(newSize, newSize, newSize)
+                hitboxPart.CFrame = mainPart.CFrame
+                hitboxPart.Anchored = false
+                hitboxPart.CanCollide = false
+                hitboxPart.Transparency = 1
+                hitboxPart.Material = Enum.Material.ForceField
+                hitboxPart.Parent = creature
+                
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = mainPart
+                weld.Part1 = hitboxPart
+                weld.Parent = hitboxPart
+                
+                originalHitboxSizes[creature][mainPart] = mainPart.Size
+                modifiedCreatures[creature] = true
+                modifiedCount = modifiedCount + 1
+            end
+        end
+    end
+    
+    return modifiedCount > 0
+end
+
+local function resetAllHitboxes()
+    for creature, parts in pairs(originalHitboxSizes) do
+        if creature and creature.Parent then
+            for _, part in pairs(creature:GetChildren()) do
+                if part.Name == "CustomHitbox" then
+                    part:Destroy()
+                end
+            end
+        end
+    end
+    
+    originalHitboxSizes = {}
+    modifiedCreatures = {}
+end
+
+local function createHitboxVisualization(creatureName, size)
+    for _, visual in pairs(hitboxVisualization) do
+        if visual and visual.Parent then
+            visual:Destroy()
+        end
+    end
+    hitboxVisualization = {}
+    
+    local creatures = findCreaturesInWorkspace(creatureName)
+    if #creatures == 0 then return end
+    
+    for i, creature in pairs(creatures) do
+        local rootPart = creature:FindFirstChild("HumanoidRootPart") or 
+                        creature:FindFirstChild("Torso") or
+                        creature:FindFirstChildOfClass("BasePart")
+        
+        if rootPart then
+            local visualPart = Instance.new("Part")
+            visualPart.Name = "HitboxVisualization_" .. i
+            visualPart.Size = Vector3.new(size, size, size)
+            visualPart.CFrame = rootPart.CFrame
+            visualPart.Anchored = true
+            visualPart.CanCollide = false
+            visualPart.Transparency = 0.7
+            visualPart.Material = Enum.Material.ForceField
+            visualPart.BrickColor = BrickColor.new("Bright red")
+            visualPart.Shape = Enum.PartType.Block
+            visualPart.Parent = workspace
+            
+            local selectionBox = Instance.new("SelectionBox")
+            selectionBox.Adornee = visualPart
+            selectionBox.Color3 = Color3.fromRGB(255, 0, 0)
+            selectionBox.LineThickness = 0.2
+            selectionBox.Transparency = 0
+            selectionBox.Parent = visualPart
+            
+            table.insert(hitboxVisualization, visualPart)
+            
+            local connection
+            connection = RunService.Heartbeat:Connect(function()
+                if creature and creature.Parent and rootPart and rootPart.Parent then
+                    visualPart.CFrame = rootPart.CFrame
+                else
+                    connection:Disconnect()
+                    if visualPart and visualPart.Parent then
+                        visualPart:Destroy()
+                    end
+                    for j, vis in pairs(hitboxVisualization) do
+                        if vis == visualPart then
+                            table.remove(hitboxVisualization, j)
+                            break
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end
+
+local function startKillAura()
+    if killAuraConnection then return end
+    
+    killAuraConnection = RunService.Heartbeat:Connect(function()
+        if not killAuraEnabled or not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        
+        local playerPos = player.Character.HumanoidRootPart.Position
+        local tool = player.Character:FindFirstChildOfClass("Tool")
+        
+        if not tool then
+            for _, t in pairs(player.Backpack:GetChildren()) do
+                if t:IsA("Tool") then
+                    player.Character.Humanoid:EquipTool(t)
+                    tool = t
+                    break
+                end
+            end
+        end
+        
+        if tool and tool:FindFirstChild("Handle") then
+            for _, creature in pairs(workspace:GetDescendants()) do
+                if creature:IsA("Model") and creature:FindFirstChildOfClass("Humanoid") and creature ~= player.Character then
+                    local humanoid = creature:FindFirstChildOfClass("Humanoid")
+                    if humanoid and humanoid.Health > 0 then
+                        local creatureRoot = creature:FindFirstChild("HumanoidRootPart") or creature:FindFirstChildOfClass("BasePart")
+                        if creatureRoot then
+                            local distance = (playerPos - creatureRoot.Position).Magnitude
+                            if distance <= killAuraRange then
+                                tool:Activate()
+                                task.wait(0.1)
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopKillAura()
+    if killAuraConnection then
+        killAuraConnection:Disconnect()
+        killAuraConnection = nil
+    end
+end
+
+local function createESPForCreature(creature)
+    if not creature or not creature.Parent then return end
+    
+    local rootPart = creature:FindFirstChild("HumanoidRootPart") or 
+                    creature:FindFirstChild("Torso") or
+                    creature:FindFirstChildOfClass("BasePart")
+    
+    if not rootPart then return end
+    
+    for _, child in pairs(creature:GetChildren()) do
+        if child.Name == "LostESP_99Nights" then
+            child:Destroy()
+        end
+    end
+    
+    local espBox = Instance.new("BoxHandleAdornment")
+    espBox.Name = "LostESP_99Nights"
+    espBox.Adornee = rootPart
+    espBox.Size = rootPart.Size + Vector3.new(2, 2, 2)
+    espBox.Color3 = Color3.fromRGB(255, 0, 0)
+    espBox.Transparency = 0.5
+    espBox.AlwaysOnTop = true
+    espBox.ZIndex = 10
+    espBox.Parent = creature
+    
+    local attachment0 = Instance.new("Attachment")
+    attachment0.Parent = rootPart
+    
+    local attachment1 = Instance.new("Attachment")
+    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        attachment1.Parent = player.Character.HumanoidRootPart
+        
+        local beam = Instance.new("Beam")
+        beam.Name = "LostESP_99Nights"
+        beam.Attachment0 = attachment0
+        beam.Attachment1 = attachment1
+        beam.Color = ColorSequence.new(Color3.fromRGB(255, 255, 0))
+        beam.Transparency = NumberSequence.new(0.5)
+        beam.Width0 = 0.5
+        beam.Width1 = 0.5
+        beam.Parent = creature
+    end
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "LostESP_99Nights"
+    billboard.Parent = rootPart
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.AlwaysOnTop = true
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Parent = billboard
+    nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = creature.Name
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 14
+    nameLabel.TextScaled = true
+    
+    local distanceLabel = Instance.new("TextLabel")
+    distanceLabel.Parent = billboard
+    distanceLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    distanceLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    distanceLabel.BackgroundTransparency = 1
+    distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+    distanceLabel.TextStrokeTransparency = 0
+    distanceLabel.Font = Enum.Font.Gotham
+    distanceLabel.TextSize = 12
+    distanceLabel.TextScaled = true
+    
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if creature and creature.Parent and rootPart and rootPart.Parent and 
+           player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = (player.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude
+            distanceLabel.Text = math.floor(distance) .. " studs"
+        else
+            connection:Disconnect()
+        end
+    end)
+    
+    espData[creature] = {box = espBox, billboard = billboard, connection = connection}
+end
+
+local function spawnLogs()
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    local playerPos = player.Character.HumanoidRootPart.Position
+    local spawnCount = math.random(15, 25)
+    
+    for i = 1, spawnCount do
+        local angle = (i / spawnCount) * math.pi * 2
+        local distance = math.random(8, 25)
+        local spawnPos = playerPos + Vector3.new(
+            math.cos(angle) * distance,
+            math.random(1, 6),
+            math.sin(angle) * distance
+        )
+        
+        local logPart = Instance.new("Part")
+        logPart.Name = "Log"
+        logPart.Size = Vector3.new(2, 1, 6)
+        logPart.Material = Enum.Material.Wood
+        logPart.BrickColor = BrickColor.new("Brown")
+        logPart.Position = spawnPos
+        logPart.Shape = Enum.PartType.Cylinder
+        logPart.Anchored = false
+        logPart.CanCollide = true
+        logPart.Parent = workspace
+        
+        local clickDetector = Instance.new("ClickDetector")
+        clickDetector.MaxActivationDistance = 50
+        clickDetector.Parent = logPart
+        
+        task.wait(0.05)
+    end
+end
+
+local function createHub()
+    if hubLoaded then return end
+    hubLoaded = true
+    
+    local success, WindUI = pcall(function()
+        return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+    end)
+    
+    if not success then
+        return
+    end
+
+    Window = WindUI:CreateWindow({
+        Title = "Lost Hub - 99 Nights",
+        Icon = "rbxassetid://122913243559549",
+        Author = "99 Nights Edition",
+        Folder = "LostHub",
+        Size = isMobile and UDim2.fromOffset(500, 400) or UDim2.fromOffset(580, 325),
+        Transparent = true,
+        Theme = "Dark",
+        Resizable = true,
+        SideBarWidth = isMobile and 150 or 200,
+    })
+
+    local tabs = {}
+    
+    tabs.CreditsTab = Window:Tab({Title = "Credits", Icon = "info"})
+    tabs.EspTab = Window:Tab({Title = "ESP", Icon = "eye"})
+    tabs.PlayerTab = Window:Tab({Title = "Player", Icon = "user"})
+    tabs.CreaturesTab = Window:Tab({Title = "Creatures", Icon = "zap"})
+    tabs.WorldTab = Window:Tab({Title = "World Features", Icon = "globe"})
+    
+    tabs.CreditsTab:Section({Title = "Team Credits"})
+    tabs.CreditsTab:Paragraph({
+        Title = "Script Developer",
+        Desc = "• 生まれ変わった - Main developer and creator"
+    })
+    
+    tabs.EspTab:Section({Title = "Enhanced ESP System"})
+    
+    local creatureESPDropdown = tabs.EspTab:Dropdown({
+        Title = "Select Creature for ESP",
+        Values = scanWorkspaceForCreatures(),
+        Multi = false,
+        Default = 1,
+        Callback = function(value)
+            selectedESPCreature = value or ""
+        end
+    })
+    
+    tabs.EspTab:Toggle({
+        Title = "ESP Selected Creature",
+        Desc = "Shows boxes, lines and distance for selected creature",
+        Default = false,
+        Callback = function(state)
+            if state and selectedESPCreature ~= "" then
+                espEnabled = true
+                local creatures = findCreaturesInWorkspace(selectedESPCreature)
+                for _, creature in pairs(creatures) do
+                    createESPForCreature(creature)
+                end
+            else
+                espEnabled = false
+                if not allESPEnabled then
+                    for creature, data in pairs(espData) do
+                        if data.connection then data.connection:Disconnect() end
+                        for _, child in pairs(creature:GetChildren()) do
+                            if child.Name == "LostESP_99Nights" then child:Destroy() end
+                        end
+                    end
+                    espData = {}
+                end
+            end
+        end
+    })
+    
+    tabs.PlayerTab:Section({Title = "Movement Controls"})
+    
+    tabs.PlayerTab:Slider({
+        Title = "Walk Speed",
+        Step = 1,
+        Value = {Min = 1, Max = 100, Default = 16},
+        Callback = function(value)
+            playerSpeed = value
+            if player.Character and player.Character:FindFirstChild("Humanoid") then
+                player.Character.Humanoid.WalkSpeed = value
+            end
+        end
+    })
+    
+    tabs.PlayerTab:Toggle({
+        Title = "Noclip",
+        Desc = "Phase through walls and objects",
+        Default = false,
+        Callback = function(state)
+            noclipEnabled = state
+            if state then
+                noclipConnection = RunService.Stepped:Connect(function()
+                    if player.Character and noclipEnabled then
+                        for _, part in pairs(player.Character:GetDescendants()) do
+                            if part:IsA("BasePart") and part.CanCollide then
+                                part.CanCollide = false
+                            end
+                        end
+                    end
+                end)
+            else
+                if noclipConnection then
+                    noclipConnection:Disconnect()
+                    noclipConnection = nil
+                end
+                if player.Character then
+                    for _, part in pairs(player.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = true
+                        end
+                    end
+                end
+            end
+        end
+    })
+    
+    tabs.CreaturesTab:Section({Title = "Creature Modifications"})
+    
+    local creatureDropdown = tabs.CreaturesTab:Dropdown({
+        Title = "Select Creature",
+        Values = scanWorkspaceForCreatures(),
+        Multi = false,
+        Default = 1,
+        Callback = function(value)
+            selectedCreature = value or "Bear"
+        end
+    })
+    
+    tabs.CreaturesTab:Slider({
+        Title = "Hitbox Size",
+        Step = 1,
+        Value = {Min = 5, Max = 500, Default = 70},
+        Callback = function(value)
+            hitboxSize = value
+        end
+    })
+    
+    tabs.CreaturesTab:Button({
+        Title = "Modify Hitbox",
+        Desc = "Apply hitbox modification to selected creature",
+        Callback = function()
+            modifyCreatureHitbox(selectedCreature, hitboxSize)
+        end
+    })
+    
+    tabs.WorldTab:Section({Title = "Resource Management"})
+    
+    tabs.WorldTab:Button({
+        Title = "Spawn Logs",
+        Desc = "Spawns multiple logs around the player with physics",
+        Callback = function()
+            spawnLogs()
+        end
+    })
+    
+    tabs.WorldTab:Button({
+        Title = "Collect All Logs",
+        Desc = "Teleports all logs in workspace to player",
+        Callback = function()
+            if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+                return
+            end
+            
+            local playerPos = player.Character.HumanoidRootPart.Position
+            local logs = scanWorkspaceForLogs()
+            
+            for i, log in pairs(logs) do
+                if log:IsA("Part") then
+                    log.Position = playerPos + Vector3.new(0, i * 0.5, 0)
+                elseif log:IsA("Model") and log:FindFirstChildOfClass("BasePart") then
+                    log:FindFirstChildOfClass("BasePart").Position = playerPos + Vector3.new(0, i * 0.5, 0)
+                end
+            end
+        end
+    })
+end
+
+local function createToggleButton()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "LostToggle"
+    screenGui.Parent = game.CoreGui
+    screenGui.ResetOnSpawn = false
+
+    local button = Instance.new("ImageButton")
+    button.Size = isMobile and UDim2.new(0, 65, 0, 65) or UDim2.new(0, 60, 0, 60)
+    button.Position = UDim2.new(0, 50, 0, 50)
+    button.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    button.BackgroundTransparency = 0.2
+    button.Image = "rbxassetid://122913243559549"
+    button.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0.5, 0)
+    corner.Parent = button
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 3
+    stroke.Color = Color3.new(1, 1, 1)
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = button
+    
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = button.Position
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            button.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    
+    local isOpen = true
+    button.MouseButton1Click:Connect(function()
+        if Window then
+            if isOpen then
+                Window:Close()
+                button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+                button.BackgroundTransparency = 0.5
+                isOpen = false
+            else
+                Window:Open()
+                button.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+                button.BackgroundTransparency = 0.2
+                isOpen = true
+            end
+        end
+    end)
+end
+
+if isKeySaved() then
+    task.spawn(function()
+        createIntroScreen()
+        task.wait(4)
+        createHub()
+        task.wait(2)
+        createToggleButton()
+    end)
+else
+    task.spawn(function()
+        createIntroScreen()
+        task.wait(4)
+        
+        local keyGui = Instance.new("ScreenGui")
+        keyGui.Name = "LostKeySystem"
+        keyGui.Parent = player.PlayerGui
+        keyGui.ResetOnSpawn = false
+        
+        local frameSize = isMobile and UDim2.new(0, 400, 0, 350) or UDim2.new(0, 500, 0, 370)
+        
+        local frame = Instance.new("Frame")
+        frame.Size = frameSize
+        frame.Position = UDim2.new(0.5, -frameSize.X.Offset/2, 0.5, -frameSize.Y.Offset/2)
+        frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        frame.BorderSizePixel = 0
+        frame.Parent = keyGui
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 20)
+        corner.Parent = frame
+        
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(100, 100, 100)
+        stroke.Thickness = 2
+        stroke.Parent = frame
+        
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -40, 0, 60)
+        title.Position = UDim2.new(0, 20, 0, 20)
+        title.BackgroundTransparency = 1
+        title.Text = "Lost Hub - Key System"
+        title.TextColor3 = Color3.fromRGB(255, 100, 100)
+        title.TextSize = isMobile and 28 or 32
+        title.Font = Enum.Font.GothamBold
+        title.Parent = frame
+        
+        local subtitle = Instance.new("TextLabel")
+        subtitle.Size = UDim2.new(1, -40, 0, 30)
+        subtitle.Position = UDim2.new(0, 20, 0, 80)
+        subtitle.BackgroundTransparency = 1
+        subtitle.Text = "99 Nights Premium Edition"
+        subtitle.TextColor3 = Color3.fromRGB(150, 150, 150)
+        subtitle.TextSize = isMobile and 16 or 18
+        subtitle.Font = Enum.Font.Gotham
+        subtitle.Parent = frame
+        
+        local byLabel = Instance.new("TextLabel")
+        byLabel.Size = UDim2.new(1, -40, 0, 20)
+        byLabel.Position = UDim2.new(0, 20, 0, 110)
+        byLabel.BackgroundTransparency = 1
+        byLabel.Text = "By 生まれ変わった"
+        byLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+        byLabel.TextSize = isMobile and 12 or 14
+        byLabel.Font = Enum.Font.Gotham
+        byLabel.Parent = frame
+        
+        local keyInput = Instance.new("TextBox")
+        keyInput.Size = UDim2.new(1, -60, 0, 40)
+        keyInput.Position = UDim2.new(0, 30, 0, 150)
+        keyInput.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        keyInput.TextColor3 = Color3.new(0, 0, 0)
+        keyInput.PlaceholderText = "Enter your premium key..."
+        keyInput.Text = ""
+        keyInput.TextSize = 16
+        keyInput.Font = Enum.Font.Gotham
+        keyInput.Parent = frame
+        
+        local inputCorner = Instance.new("UICorner")
+        inputCorner.CornerRadius = UDim.new(0, 8)
+        inputCorner.Parent = keyInput
+        
+        local submitBtn = Instance.new("TextButton")
+        submitBtn.Size = UDim2.new(0, 150, 0, 40)
+        submitBtn.Position = UDim2.new(0.5, -75, 0, 210)
+        submitBtn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+        submitBtn.Text = "Submit Key"
+        submitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        submitBtn.TextSize = 16
+        submitBtn.Font = Enum.Font.GothamBold
+        submitBtn.Parent = frame
+        
+        local submitCorner = Instance.new("UICorner")
+        submitCorner.CornerRadius = UDim.new(0, 8)
+        submitCorner.Parent = submitBtn
+        
+        local discordBtn = Instance.new("TextButton")
+        discordBtn.Size = UDim2.new(0, 200, 0, 40)
+        discordBtn.Position = UDim2.new(0.5, -100, 0, 270)
+        discordBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+        discordBtn.Text = "Get Key - Discord"
+        discordBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        discordBtn.TextSize = 16
+        discordBtn.Font = Enum.Font.GothamBold
+        discordBtn.Parent = frame
+        
+        local discordCorner = Instance.new("UICorner")
+        discordCorner.CornerRadius = UDim.new(0, 8)
+        discordCorner.Parent = discordBtn
+        
+        submitBtn.MouseButton1Click:Connect(function()
+            local inputKey = keyInput.Text
+            local validKey = false
+            
+            for _, key in pairs(REQUIRED_KEYS) do
+                if inputKey == key then
+                    validKey = true
+                    break
+                end
+            end
+            
+            if validKey then
+                saveKey(inputKey)
+                keyGui:Destroy()
+                createHub()
+                task.spawn(function()
+                    task.wait(2)
+                    createToggleButton()
+                end)
+            else
+                keyInput.Text = ""
+                keyInput.PlaceholderText = "Invalid key! Try again..."
+            end
+        end)
+        
+        discordBtn.MouseButton1Click:Connect(function()
+            if setclipboard then
+                setclipboard("https://discord.gg/BvYXdXFwjV")
+            end
+        end)
+    end)
+end
+
+player.CharacterAdded:Connect(function()
+    task.wait(1)
+    if noclipEnabled then
+        noclipConnection = RunService.Stepped:Connect(function()
+            if player.Character and noclipEnabled then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end
+    
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        player.Character.Humanoid.WalkSpeed = playerSpeed
+        player.Character.Humanoid.JumpPower = playerJumpPower
+    end
+end)
